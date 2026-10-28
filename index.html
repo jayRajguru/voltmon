@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>VoltMon</title>
 
-  <!-- PART 1: how the page looks. You can ignore this part for now. -->
+  <!-- PART 1: how the page looks. You can still ignore this part. -->
   <style>
     :root {
       --bg: #eef0f2;
@@ -13,12 +13,18 @@
       --muted: #5f6b73;
       --accent: #f4c20d;        /* multimeter yellow */
       --accent-text: #24282c;
+      --panel: #c9d1c3;         /* LCD grey-green */
+      --digits: #1d2622;
+      --alarm: #c62828;
     }
     @media (prefers-color-scheme: dark) {
       :root {
         --bg: #1f2326;
         --text: #e8eaec;
         --muted: #9aa5ad;
+        --panel: #2c3530;
+        --digits: #d7e6d9;
+        --alarm: #ef5350;
       }
     }
     body {
@@ -30,6 +36,30 @@
     }
     h1 { font-size: 2.6rem; margin: 0 0 4px; }
     p  { color: var(--muted); margin: 0 0 28px; }
+    .meter {
+      max-width: 320px;
+      margin: 0 0 24px;
+      padding: 20px;
+      background: var(--panel);
+      color: var(--digits);
+      border: 3px solid transparent;
+      border-radius: 10px;
+    }
+    .meter.alarm { border-color: var(--alarm); }
+    .meter.alarm #voltage { color: var(--alarm); }
+    #voltage {
+      font-size: 4.5rem;
+      font-weight: 600;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+    .unit { font-size: 1.6rem; margin-left: 6px; }
+    #alarmText {
+      min-height: 1.4em;
+      margin-top: 8px;
+      font-weight: 600;
+      color: var(--alarm);
+    }
     button {
       width: 100%;
       max-width: 360px;
@@ -49,16 +79,27 @@
   <!-- PART 2: what you see on the screen -->
   <h1>VoltMon</h1>
   <p>Voltage monitor for your ESP32</p>
+
+  <!-- NEW: the meter display -->
+  <div class="meter" id="meter">
+    <span id="voltage">-.---</span><span class="unit">V</span>
+    <div id="alarmText"></div>
+  </div>
+
   <button id="connectButton">Connect</button>
   <div id="status">Not connected</div>
 
   <!-- PART 3: what the app does -->
   <script>
-    // The same service UUID as in the ESP32 sketch (Project 2)
+    // The same UUIDs as in the ESP32 sketch (Project 2)
     const SERVICE_UUID = "e4e2e800-772f-4c58-b139-58b2235cfbc9";
+    const VOLTAGE_UUID = "e4e2e801-772f-4c58-b139-58b2235cfbc9";   // NEW
 
     const connectButton = document.getElementById("connectButton");
     const statusText = document.getElementById("status");
+    const meter = document.getElementById("meter");               // NEW
+    const voltageText = document.getElementById("voltage");       // NEW
+    const alarmText = document.getElementById("alarmText");       // NEW
 
     // When the button is tapped, run the connect() function below
     connectButton.addEventListener("click", connect);
@@ -77,12 +118,22 @@
           filters: [{ services: [SERVICE_UUID] }]
         });
 
+        // NEW: run onDisconnected() if the connection is ever lost
+        device.addEventListener("gattserverdisconnected", onDisconnected);
+
         // Step 2: connect to the ESP32’s GATT server
         statusText.textContent = "Connecting…";
         const server = await device.gatt.connect();
 
         // Step 3: find our service by its UUID
-        await server.getPrimaryService(SERVICE_UUID);
+        const service = await server.getPrimaryService(SERVICE_UUID);
+
+        // Step 4 (NEW): find the voltage characteristic and subscribe to it.
+        // This is the code version of tapping the three down-arrows in nRF Connect.
+        const voltageChar = await service.getCharacteristic(VOLTAGE_UUID);
+        voltageChar.addEventListener("characteristicvaluechanged", showVoltage);
+        await voltageChar.startNotifications();
+
         statusText.textContent = "Connected to " + device.name;
 
       } catch (error) {
@@ -93,6 +144,31 @@
           statusText.textContent = "Connection failed: " + error.message;
         }
       }
+    }
+
+    // NEW: runs every time the ESP32 sends a new value (twice a second)
+    function showVoltage(event) {
+      // The value arrives as bytes. Turn them back into text, e.g. "2.345 V ALARM"
+      const text = new TextDecoder().decode(event.target.value);
+
+      // parseFloat reads the number at the start of the text: 2.345
+      const volts = parseFloat(text);
+      if (isNaN(volts)) return;          // not a number? ignore it
+
+      voltageText.textContent = volts.toFixed(3);   // always 3 decimals
+
+      // If the text contains the word ALARM, show the alarm
+      const alarm = text.includes("ALARM");
+      alarmText.textContent = alarm ? "Above alarm level" : "";
+      meter.classList.toggle("alarm", alarm);
+    }
+
+    // NEW: runs when the connection is lost (ESP32 reset, out of range…)
+    function onDisconnected() {
+      statusText.textContent = "Disconnected. Tap Connect to connect again.";
+      voltageText.textContent = "-.---";
+      alarmText.textContent = "";
+      meter.classList.remove("alarm");
     }
   </script>
 </body>
