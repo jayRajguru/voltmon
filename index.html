@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VoltMon</title>
+
+  <!-- PART 1: how the page looks. You can ignore this part for now. -->
+  <style>
+    :root {
+      --bg: #eef0f2;
+      --text: #24282c;
+      --muted: #5f6b73;
+      --accent: #f4c20d;        /* multimeter yellow */
+      --accent-text: #24282c;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #1f2326;
+        --text: #e8eaec;
+        --muted: #9aa5ad;
+      }
+    }
+    body {
+      margin: 0;
+      padding: 32px 20px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Bahnschrift", "DIN Alternate", system-ui, sans-serif;
+    }
+    h1 { font-size: 2.6rem; margin: 0 0 4px; }
+    p  { color: var(--muted); margin: 0 0 28px; }
+    button {
+      width: 100%;
+      max-width: 360px;
+      padding: 18px;
+      font: inherit;
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: var(--accent-text);
+      background: var(--accent);
+      border: none;
+      border-radius: 10px;
+    }
+    #status { margin-top: 20px; font-size: 1.1rem; }
+  </style>
+</head>
+<body>
+  <!-- PART 2: what you see on the screen -->
+  <h1>VoltMon</h1>
+  <p>Voltage monitor for your ESP32</p>
+  <button id="connectButton">Connect</button>
+  <div id="status">Not connected</div>
+
+  <!-- PART 3: what the app does -->
+  <script>
+    // The same service UUID as in the ESP32 sketch (Project 2)
+    const SERVICE_UUID = "e4e2e800-772f-4c58-b139-58b2235cfbc9";
+
+    const connectButton = document.getElementById("connectButton");
+    const statusText = document.getElementById("status");
+
+    // When the button is tapped, run the connect() function below
+    connectButton.addEventListener("click", connect);
+
+    async function connect() {
+      // Some browsers (for example on iPhone) have no Bluetooth support
+      if (!navigator.bluetooth) {
+        statusText.textContent = "This browser can’t use Bluetooth. Open the page in Chrome on Android.";
+        return;
+      }
+
+      try {
+        // Step 1: show nearby devices that advertise our service UUID
+        statusText.textContent = "Choose ESP32-VoltMon in the list…";
+        const device = await navigator.bluetooth.requestDevice({
+          filters: [{ services: [SERVICE_UUID] }]
+        });
+
+        // Step 2: connect to the ESP32’s GATT server
+        statusText.textContent = "Connecting…";
+        const server = await device.gatt.connect();
+
+        // Step 3: find our service by its UUID
+        await server.getPrimaryService(SERVICE_UUID);
+        statusText.textContent = "Connected to " + device.name;
+
+      } catch (error) {
+        // Something went wrong: show a clear message instead of stopping
+        if (error.name === "NotFoundError") {
+          statusText.textContent = "No device chosen. Check that the ESP32 is on and nRF Connect is disconnected, then tap Connect again.";
+        } else {
+          statusText.textContent = "Connection failed: " + error.message;
+        }
+      }
+    }
+  </script>
+</body>
+</html>
